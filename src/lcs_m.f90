@@ -195,6 +195,10 @@ module lcs_m
       subroutine destroy_lcs(lcs)
             implicit none
             type(lcs_t),pointer :: lcs
+            
+            if (lcsrank==0)&
+                  write(*,*) 'in destroy_lcs...',trim(lcs%label)
+                  
             !-----
             lcs%id = -1
             lcs%label = 'LCS_NOT_USED'
