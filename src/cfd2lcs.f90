@@ -13,6 +13,8 @@ subroutine cfd2lcs_init(cfdcomm,n,offset,x,y,z,flag)
       !----
       integer:: error,success1,success2,ierr
       !----
+      integer:: system ! watteaux2020, for pb system on ifort
+
       if(CFD2LCS_ERROR /= 0) return
 
       !Initialize data counters
@@ -32,8 +34,12 @@ subroutine cfd2lcs_init(cfdcomm,n,offset,x,y,z,flag)
 
       !Make sure the required output and tmp directories exist
       if(lcsrank ==0) then
-            call system("mkdir -p ./"//trim(OUTPUT_DIR), success1)
-            call system("mkdir -p ./"//trim(TEMP_DIR), success2)
+            ! watteaux 2020, modification to have the library working with ifort
+            ! for which system is a function and not a subroutine
+            !call system("mkdir -p ./"//trim(OUTPUT_DIR), success1)
+            !call system("mkdir -p ./"//trim(TEMP_DIR), success2)
+            success1 = system("mkdir -p ./"//trim(OUTPUT_DIR))
+            success2 = system("mkdir -p ./"//trim(TEMP_DIR))
             if (success1 /= 0 .OR. success2 /=0) then
                   write(*,*) 'ERROR:  cfd2lcs cannot create required output directories'
                   CFD2LCS_ERROR = 1
@@ -78,6 +84,7 @@ subroutine cfd2lcs_update(n,ux,uy,uz,time)
       real:: t2,t3,t0,t1
       logical:: fm_complete
       !----
+ta
       if(CFD2LCS_ERROR /= 0) return
 
       t_start_update = cputimer(lcscomm,SYNC_TIMER)
@@ -191,7 +198,7 @@ subroutine cfd2lcs_update(n,ux,uy,uz,time)
                               !-----
                               call compute_ftle(lcs)
 
-                              if(VELOCITY_INVARIANTS) then
+                              if(VELOCITY_INVARIANTS .AND. lcs%diagnostic==FTLE_BKWD) then
                                  call compute_invariants(lcs)
                               endif
 
