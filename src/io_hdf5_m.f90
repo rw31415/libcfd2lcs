@@ -127,11 +127,11 @@ module io_m
                            call structured_io(trim(fname),IO_APPEND,gn,offset,r0=lcs%inv%C)   !Append  C
                            call structured_io(trim(fname),IO_APPEND,gn,offset,r0=lcs%inv%D)   !Append  D
                            call structured_io(trim(fname),IO_APPEND,gn,offset,r0=lcs%inv%H)   !Append  H
-                           call structured_io(trim(fname),IO_APPEND,gn,offset,r0=lcs%inv%L2)   !Append L2 
+                           call structured_io(trim(fname),IO_APPEND,gn,offset,r0=lcs%inv%L2)  !Append L2 
                         endif
                   case(LP_TRACER)
-                        call unstructured_io(fname,IO_WRITE,r1=lcs%lp%xp)
-                        call unstructured_io(fname,IO_APPEND,r1=lcs%lp%up)
+                        call unstructured_io(fname,IO_WRITE,r1=lcs%lp%xp,r1_savemode='compacted')
+                        call unstructured_io(fname,IO_APPEND,r1=lcs%lp%up,r1_savemode='compacted')
                   case default
             end select
 
@@ -161,8 +161,8 @@ module io_m
             integer(HID_T) :: plist_id      ! Property list identifier
             integer(HSIZE_T), DIMENSION(NDIM) :: local_size ! Processor array dimension
             integer(HSIZE_T), DIMENSION(NDIM) :: chunk_size ! Data chunk dimensions (constant across procs)
-            integer(HSIZE_T),  DIMENSION(NDIM) :: data_count = 1
-            integer(HSIZE_T),  DIMENSION(NDIM) :: data_stride = 1
+            integer(HSIZE_T), DIMENSION(NDIM) :: data_count = 1
+            integer(HSIZE_T), DIMENSION(NDIM) :: data_stride = 1
             integer :: error=0  ! Error flags
             integer :: info = MPI_INFO_NULL
             INTEGER(HID_T):: group_id
@@ -489,7 +489,7 @@ module io_m
 
       end subroutine structured_io
 
-      subroutine unstructured_io(fname,IO_ACTION,r0,r1,r2)
+      subroutine unstructured_io(fname,IO_ACTION,r0,r1,r2,r1_savemode)
       IMPLICIT NONE
             !-----
             character(len=*):: fname
@@ -497,8 +497,10 @@ module io_m
             type(ur0_t),optional:: r0
             type(ur1_t),optional:: r1
             type(ur2_t),optional:: r2
+            character(len=*):: r1_savemode
             !-----
             integer:: NVAR, WORK_DATA
+            integer,allocatable::RVAR(:)
             character(len=LCS_NAMELEN),allocatable:: dataname(:)
             character(len=LCS_NAMELEN):: groupname
             real(LCSRP),allocatable :: data (:)  ! Write buffer
@@ -507,18 +509,19 @@ module io_m
             integer(HID_T) :: filespace     ! Dataspace identifier in file
             integer(HID_T) :: memspace      ! Dataspace identifier in memory
             integer(HID_T) :: plist_id      ! Property list identifier
-            integer,parameter:: NDIM = 1  !all data considered 1 dimensional
+            integer,parameter:: NDIM = 2  ! all data considered 1 dimensional except in r1_savemode='compacted' mode where 2 so ndim is 2 by default
+            real(LCSRP),dimension(NDIM),allocatable :: data (:,:)  ! Write buffer
             integer,dimension(NDIM):: global_size !Global number of datapoints
             integer,dimension(NDIM):: offset    !Offset for this proc
             integer(HSIZE_T),dimension(NDIM) :: local_size ! Processor array dimension
             integer(HSIZE_T),dimension(NDIM) :: chunk_size ! Data chunk dimensions (constant across procs)
-            integer(HSIZE_T),dimension(NDIM) :: data_count = 1
-            integer(HSIZE_T),dimension(NDIM) :: data_stride = 1
+            integer(HSIZE_T),dimension(NDIM) :: data_count = (/1,1/)
+            integer(HSIZE_T),dimension(NDIM) :: data_stride = (/1,1/)
             integer :: error=0  ! Error flags
             integer :: info = MPI_INFO_NULL
             INTEGER(HID_T):: group_id
             integer:: ivar
-            integer:: n
+            integer:: n(2)
             integer:: ierr, dummy_size, max_dummy_size
             integer,allocatable:: my_size_array(:), size_array(:)
             integer:: proc,nsum
@@ -531,28 +534,45 @@ module io_m
             !
             if (present(r0)) then
                   NVAR = 1
+                  allocate(RVAR(1))
+                  RVAR = (/1/)
                   WORK_DATA = R0_DATA
-                  n = r0%n
+                  n = (/r0%n,1/)
                   write(groupname,'(a)') '/'
                   allocate(dataname(1))
                   write(dataname(1),'(a,a)')  trim(groupname),trim(r0%label)
                   if(lcsrank==0) &
                         write(*,'(a,a,a)') 'In unstructured_io... ',ACTION_STRING(IO_ACTION),trim(r0%label)
             elseif(present(r1)) then
-                  NVAR = 3
-                  WORK_DATA = R1_DATA
-                  n = r1%n
-                  write(groupname,'(a)')  trim(r1%label)
-                  allocate(dataname(3))
-                  write(dataname(1),'(a,a,a)')   trim(groupname),'/','-X'
-                  write(dataname(2),'(a,a,a)')   trim(groupname),'/','-Y'
-                  write(dataname(3),'(a,a,a)')   trim(groupname),'/','-Z'
+                  if (r1_savemode=='compacted') then
+                       NVAR = 1
+                       allocate(RVAR(1))
+                       RVAR = (/10/)
+                       WORK_DATA = R1_DATA
+                       n = (/r1%n,3/)
+                       write(groupname,'(a)')  trim(r1%label)
+                       allocate(dataname(1))
+                       write(dataname(1),'(a,a,a)')   trim(groupname),'/','-XYZ'
+                  elseif (r1_savemode=='separated') then
+                       NVAR = 3
+                       allocate(RVAR(3))
+                       RVAR = (/1,2,3/)
+                       WORK_DATA = R1_DATA
+                       n = (/r1%n,1/)
+                       write(groupname,'(a)')  trim(r1%label)
+                       allocate(dataname(3))
+                       write(dataname(1),'(a,a,a)')   trim(groupname),'/','-X'
+                       write(dataname(2),'(a,a,a)')   trim(groupname),'/','-Y'
+                       write(dataname(3),'(a,a,a)')   trim(groupname),'/','-Z'
+                  endif
                   if(lcsrank==0) &
                         write(*,'(a,a,a)') 'In unstructured_io... ',ACTION_STRING(IO_ACTION),trim(r1%label)
             elseif(present(r2)) then
                   NVAR = 9
+                  allocate(RVAR(9))
+                  RVAR = (/1,2,3,4,5,6,7,8,9/)
                   WORK_DATA = R2_DATA
-                  n = r2%n
+                  n = (/r2%n,1/)
                   write(groupname,'(a)')  trim(r2%label)
                   allocate(dataname(9))
                   write(dataname(1),'(a,a,a)')   trim(groupname),'/','-XX'
@@ -578,13 +598,14 @@ module io_m
             !
             call MPI_ALLREDUCE(n,nsum,1,MPI_INTEGER,MPI_SUM,lcscomm,ierr)
             global_size(1) = nsum
+            global_size(2) = local_size(2)
 
             allocate(my_size_array(0:nprocs-1))
             allocate(size_array(0:nprocs-1))
             my_size_array(0:nprocs-1) = 0
-            my_size_array(lcsrank) = n
+            my_size_array(lcsrank) = n(1)
             call MPI_ALLREDUCE(my_size_array,size_array,nprocs,MPI_INTEGER,MPI_MAX,lcscomm,ierr)
-            offset(1) = 0
+            offset = 0
             do proc = 0,lcsrank-1
                   offset(1) = offset(1) + size_array(proc)
             enddo
@@ -595,15 +616,16 @@ module io_m
             ! This is so that unequal partitions can be used.  Can still allocate
             ! simulation side memory for the local_size
             !
-            dummy_size = n
+            dummy_size = n(1)
             call MPI_ALLREDUCE(dummy_size,max_dummy_size,1,MPI_INTEGER,MPI_MAX,lcscomm,ierr)
-            chunk_size = max_dummy_size
+            chunk_size(1) = max_dummy_size
+            chunk_size(2) = n(2)
 
 
             !
             ! Allocate read/write buffer
             !
-            allocate(data(1:local_size(1)))
+            allocate(data(local_size(1),local_size(2)))
 
             !
             ! Initialize HDF5 library and Fortran interfaces.
@@ -655,40 +677,46 @@ module io_m
                         select case(ivar)
                         case(1)
                               if(WORK_DATA == R0_DATA) then
-                                    data(1:n) = r0%r(1:n)
+                                    data(1:n(1),1) = r0%r(1:n(1))
                               elseif(WORK_DATA == R1_DATA) then
-                                    data(1:n) = r1%x(1:n)
+                                    if(r1_savemode=='compacted') then
+                                         data(1:n(1),1) = r1%x(1:n(1))
+                                         data(1:n(1),2) = r1%y(1:n(1))
+                                         data(1:n(1),3) = r1%z(1:n(1))
+                                    elseif(r1_savemode=='separated') then
+                                         data(1:n(1),1) = r1%x(1:n(1))
+                                    endif
                               elseif(WORK_DATA == R2_DATA) then
-                                    data(1:n) = r2%xx(1:n)
+                                    data(1:n(1),1) = r2%xx(1:n(1))
                               endif
                         case(2)
                               if(WORK_DATA == R0_DATA) then
                                     cycle
                               elseif(WORK_DATA == R1_DATA) then
-                                    data(1:n) = r1%y(1:n)
+                                    data(1:n(1),1) = r1%y(1:n(1))
                               elseif(WORK_DATA == R2_DATA) then
-                                    data(1:n) = r2%xy(1:n)
+                                    data(1:n(1),1) = r2%xy(1:n(1))
                               endif
                         case(3)
                               if(WORK_DATA == R0_DATA) then
                                     cycle
                               elseif(WORK_DATA == R1_DATA) then
-                                    data(1:n) = r1%z(1:n)
+                                    data(1:n(1),1) = r1%z(1:n(1))
                               elseif(WORK_DATA == R2_DATA) then
-                                    data(1:n) = r2%xz(1:n)
+                                    data(1:n(1),1) = r2%xz(1:n(1))
                               endif
                         case(4)
-                              data(1:n) = r2%yx(1:n)
+                              data(1:n(1),1) = r2%yx(1:n(1))
                         case(5)
-                              data(1:n) = r2%yy(1:n)
+                              data(1:n(1),1) = r2%yy(1:n(1))
                         case(6)
-                              data(1:n) = r2%yz(1:n)
+                              data(1:n(1),1) = r2%yz(1:n(1))
                         case(7)
-                              data(1:n) = r2%zx(1:n)
+                              data(1:n(1),1) = r2%zx(1:n(1))
                         case(8)
-                              data(1:n) = r2%zy(1:n)
+                              data(1:n(1),1) = r2%zy(1:n(1))
                         case(9)
-                              data(1:n) = r2%zz(1:n)
+                              data(1:n(1),1) = r2%zz(1:n(1))
                         case default
                               cycle
                         end select
@@ -777,40 +805,46 @@ module io_m
                         select case(ivar)
                         case(1)
                               if(WORK_DATA == R0_DATA) then
-                                    r0%r(1:n) = data(1:n)
+                                    r0%r(1:n(1)) = data(1:n(1),1)
                               elseif(WORK_DATA == R1_DATA) then
-                                    r1%x(1:n) = data(1:n)
+                                    if(r1_savemode=='compacted') then
+                                         r1%x(1:n(1)) = data(1:n(1),1)
+                                         r1%x(1:n(1)) = data(1:n(1),2)
+                                         r1%x(1:n(1)) = data(1:n(1),3)
+                                    elseif(r1_savemode=='separated') then
+                                        r1%x(1:n(1)) = data(1:n(1),1)
+                                    endif
                               elseif(WORK_DATA == R2_DATA) then
-                                    r2%xx(1:n) = data(1:n)
+                                    r2%xx(1:n(1)) = data(1:n(1),1)
                               endif
                         case(2)
                               if(WORK_DATA == R0_DATA) then
                                     cycle
                               elseif(WORK_DATA == R1_DATA) then
-                                    r1%y(1:n) = data(1:n)
+                                    r1%y(1:n(1)) = data(1:n(1),1)
                               elseif(WORK_DATA == R2_DATA) then
-                                    r2%xy(1:n) = data(1:n)
+                                    r2%xy(1:n(1)) = data(1:n(1),1)
                               endif
                         case(3)
                               if(WORK_DATA == R0_DATA) then
                                     cycle
                               elseif(WORK_DATA == R1_DATA) then
-                                    r1%z(1:n) = data(1:n)
+                                    r1%z(1:n(1)) = data(1:n(1),1)
                               elseif(WORK_DATA == R2_DATA) then
-                                    r2%xz(1:n) = data(1:n)
+                                    r2%xz(1:n(1)) = data(1:n(1),1)
                               endif
                         case(4)
-                              r2%yx(1:n) = data(1:n)
+                              r2%yx(1:n(1)) = data(1:n(1),1)
                         case(5)
-                              r2%yy(1:n) = data(1:n)
+                              r2%yy(1:n(1)) = data(1:n(1),1)
                         case(6)
-                              r2%yz(1:n) = data(1:n)
+                              r2%yz(1:n(1)) = data(1:n(1),1)
                         case(7)
-                              r2%zx(1:n) = data(1:n)
+                              r2%zx(1:n(1)) = data(1:n(1),1)
                         case(8)
-                              r2%zy(1:n) = data(1:n)
+                              r2%zy(1:n(1)) = data(1:n(1),1)
                         case(9)
-                              r2%zz(1:n) = data(1:n)
+                              r2%zz(1:n(1)) = data(1:n(1),1)
                         case default
                               cycle
                         end select
