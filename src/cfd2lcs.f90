@@ -58,7 +58,7 @@ subroutine cfd2lcs_init(cfdcomm,n,offset,x,y,z,flag)
 
 end subroutine cfd2lcs_init
 
-subroutine cfd2lcs_update(n,ux,uy,uz,time)
+subroutine cfd2lcs_update(n,ux,uy,uz,time,time_info)
       use data_m
       use io_m
       use comms_m
@@ -74,7 +74,7 @@ subroutine cfd2lcs_update(n,ux,uy,uz,time)
       real(LCSRP):: ux(1:n(1),1:n(2),1:n(3))
       real(LCSRP):: uy(1:n(1),1:n(2),1:n(3))
       real(LCSRP):: uz(1:n(1),1:n(2),1:n(3))
-      real(LCSRP), intent(in):: time
+      real(LCSRP), intent(in):: time, time_info
       !----
       integer:: error,ierr
       integer:: ilp,ilcs
@@ -84,7 +84,7 @@ subroutine cfd2lcs_update(n,ux,uy,uz,time)
       real:: t2,t3,t0,t1
       logical:: fm_complete
       !----
-ta
+      real :: chrono ! watteaux2020 to only show info when saving data
       if(CFD2LCS_ERROR /= 0) return
 
       t_start_update = cputimer(lcscomm,SYNC_TIMER)
@@ -252,7 +252,11 @@ ta
       !Spit out some info:
       !-----
       t_finish_update = cputimer(lcscomm,SYNC_TIMER)
-      call cfd2lcs_info()
+      if (chrono .ge. time_info) then ! watteaux 2020, to only show info when saving data
+        chrono = 0.d0
+        call cfd2lcs_info()
+      endif
+      chrono = chrono + scfd%t_np1 - scfd%t_n
 
 end subroutine cfd2lcs_update
 
